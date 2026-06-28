@@ -3,9 +3,12 @@ const os = require('os');
 require('dotenv').config({quiet: true});
 
 const PORT = process.env.PORT || 3000;
+const DEVICE_NAME = process.env.DEVICE_NAME || "Unnamed"
 const LAN_ADDRESS = getLanAddress();
 const app = express();
 let connectedIPAddress = "";
+
+app.use(express.json())
 
 app.get("/devicelink/start", (req, res) => {
     connectedIPAddress = req.ip;
@@ -13,7 +16,7 @@ app.get("/devicelink/start", (req, res) => {
 });
 
 app.get('/devicelink/status', (req, res) => {
-    res.json({ connectedIPAddress, lanAddress: getLanAddress() });
+    res.json({ "devicelink": true, "device_name": DEVICE_NAME });
 });
 
 app.get("/devicelink/message", validateConnection, (req, res) => {
@@ -24,9 +27,9 @@ app.get("/devicelink/message", validateConnection, (req, res) => {
 
 app.listen(PORT);
 console.log(`====================
-    Waiting for a devicelink connection on port: ${PORT}
-    LAN Address: ${LAN_ADDRESS}
-    ====================`);
+Waiting for a devicelink connection on port: ${PORT}
+LAN Address: ${LAN_ADDRESS}:${PORT}
+====================`);
 
 function getLanAddress() {
     const nets = os.networkInterfaces();
@@ -40,6 +43,12 @@ function getLanAddress() {
     return '127.0.0.1';
 }
 
+function getBaseIP() {
+    const parts = getLanAddress().split(".");
+    parts.pop();
+    return parts.join(".") + ".";
+}
+
 function validateConnection(req, res, next) {
     const IPAddress = req.ip;
     if (IPAddress != connectedIPAddress) res.status(401).send('Unauthorized access');
@@ -47,4 +56,49 @@ function validateConnection(req, res, next) {
         console.log("Connection validated!!");
         next();
     }
+}
+
+async function scanForDevicelink(port) {
+    const baseIp = getLocalBaseIp();
+    console.log(`Starting Devicelink scan on subnet: ${baseIp}1 to ${baseIp}254`);
+
+    const promises = [];
+    const timeoutMs = 1500;
+
+    for (let i = 1; i <= 254; i++) {
+        const targetIp = baseIp + i;
+        promises.push(pingDevice(targetIp, port, timeoutMs));
+    }
+
+    const results = await Promise.allSettled(promises);
+    
+    const foundDevices = results
+        .filter(result => result.status === 'fulfilled' && result.value !== null)
+        .map(result => result.value);
+
+    return foundDevices;
+}
+
+async function pingDevice(ip, port, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const url = `http://${ip}:${port}/devicelink/status`;
+        const response = await fetch(url, { signal: controller.signal });
+
+        if (response.ok) {
+            const data = await response.json();
+            
+            if (data && data.devicelink === 'active') {
+                return { ip, data };
+            }
+        }
+    } catch (error) {
+        
+    } finally {
+        clearTimeout(timeoutId);
+    }
+    
+    return null;
 }
