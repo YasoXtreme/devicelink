@@ -7,15 +7,16 @@ const DEVICE_NAME = process.env.DEVICE_NAME || "Unnamed";
 const LAN_ADDRESS = getLanAddress();
 const app = express();
 
-let connectedIPAddress = "";
+let connectedHost = "";
 let isConnected = false;
 
 app.use(express.json());
 
 function start(port = PORT) {
   app.get("/devicelink/start", (req, res) => {
-    connectedIPAddress = convertToIpv4(req.ip);
+    connectedHost = req.host;
     res.sendStatus(200);
+    console.log(`Connected to: ${connectedHost}`);
   });
 
   app.get("/devicelink/status", (req, res) => {
@@ -24,7 +25,7 @@ function start(port = PORT) {
       device_name: DEVICE_NAME,
       is_connected: isConnected,
     });
-    console.log(`${req.ip} has requested this device's status.`);
+    console.log(`${req.host} has requested this device's status.`);
   });
 
   app.get("/devicelink/message", validateConnection, (req, res) => {
@@ -34,15 +35,24 @@ function start(port = PORT) {
   });
 
   app.listen(port);
-  console.log(`====================
-    Waiting for a devicelink connection on port: ${port}
-    LAN Address: ${LAN_ADDRESS}:${port}
-    ====================`);
+  console.log(`
+====================
+Waiting for a devicelink connection on port: ${port}
+LAN Address: ${LAN_ADDRESS}:${port}
+====================`);
 }
 
 async function search(port = PORT) {
-  const devices = await scanForDevicelink();
-  connectedIPAddress = devices[0]["ip"];
+  const devices = await scanForDevicelink(port);
+  if (devices.length == 0) return console.log("No search results.");
+  await connectToHost(devices[0]["host"]);
+}
+
+async function connectToHost(host) {
+  const response = await fetch(`http://${host}/devicelink/start`);
+  if (!response.ok) return console.log(`Failed to connect to ${host}`);
+  console.log(`Successfully connected to ${host}`);
+  connectedHost = host;
   isConnected = true;
 }
 
@@ -65,9 +75,8 @@ function getBaseIp(ip = "121.0.0.1") {
 }
 
 function validateConnection(req, res, next) {
-  const IPAddress = convertToIpv4(req.ip);
-  if (IPAddress != connectedIPAddress)
-    res.status(401).send("Unauthorized access");
+  const host = req.host;
+  if (host != connectedHost) res.status(401).send("Unauthorized access");
   else {
     console.log("Connection validated!!");
     next();
@@ -106,16 +115,17 @@ async function scanForDevicelink(port) {
 async function pingDevice(ip, port, timeoutMs) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const host = `${ip}:${port}`;
 
   try {
-    const url = `http://${ip}:${port}/devicelink/status`;
+    const url = `http://${host}/devicelink/status`;
     const response = await fetch(url, { signal: controller.signal });
 
     if (response.ok) {
       const data = await response.json();
 
       if (data && data["devicelink_active"] && !data["is_connected"]) {
-        return { ip, data };
+        return { host, data };
       }
     }
   } catch (error) {
