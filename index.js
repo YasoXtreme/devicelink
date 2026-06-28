@@ -6,7 +6,9 @@ const PORT = parseInt(process.env.PORT) || 3000;
 const DEVICE_NAME = process.env.DEVICE_NAME || "Unnamed"
 const LAN_ADDRESS = getLanAddress();
 const app = express();
+
 let connectedIPAddress = "";
+let isConnected = false;
 
 app.use(express.json())
 
@@ -17,7 +19,7 @@ function start(port=PORT) {
     });
     
     app.get('/devicelink/status', (req, res) => {
-        res.json({ "devicelink": true, "device_name": DEVICE_NAME });
+        res.json({ "devicelink_active": true, "device_name": DEVICE_NAME, "is_connected": isConnected});
         console.log(`${req.ip} has requested this device's status.`);
     });
     
@@ -36,6 +38,8 @@ function start(port=PORT) {
 
 async function search(port=PORT) {
     const devices = await scanForDevicelink()
+    connectedIPAddress = devices[0]["ip"]
+    isConnected = true
 }
 
 function getLanAddress() {
@@ -105,7 +109,7 @@ async function pingDevice(ip, port, timeoutMs) {
         if (response.ok) {
             const data = await response.json();
             
-            if (data && data.devicelink === 'active') {
+            if (data && data["devicelink_active"] && !data["is_connected"]) {
                 return { ip, data };
             }
         }
@@ -117,3 +121,5 @@ async function pingDevice(ip, port, timeoutMs) {
     
     return null;
 }
+
+module.exports = {start, search}
