@@ -5,16 +5,17 @@ require("dotenv").config({ quiet: true });
 const PORT = parseInt(process.env.PORT) || 3000;
 const DEVICE_NAME = process.env.DEVICE_NAME || "Unnamed";
 const LAN_ADDRESS = getLanAddress();
-const app = express();
 
-class devicelink {
+class Devicelink {
+  #app;
+
   constructor(port = 3000, deviceName = "Unnamed") {
     this.port = port;
     this.deviceName = deviceName;
     this.lanAddress = getLanAddress();
     this.isConnected = false;
     this.connectedHost = "";
-    this.#app = app;
+    this.#app = express();
   }
 
   start() {
@@ -46,12 +47,6 @@ class devicelink {
     this.#app.listen(this.port);
   }
 
-  async search(port = this.port) {
-    const devices = await this.#scanForDevicelink(port);
-    if (devices.length == 0) return;
-    await this.#connectToHost(devices[0]["host"]);
-  }
-
   async #connectToHost(host) {
     const response = await fetch(`http://${host}/devicelink/start`);
     if (!response.ok) return;
@@ -68,7 +63,7 @@ class devicelink {
     }
   }
 
-  async #scanForDevicelink(port) {
+  async search(port = this.port) {
     const baseIp = getBaseIp(this.lanAddress);
     const promises = [];
     const timeoutMs = 1500;
@@ -101,8 +96,14 @@ class devicelink {
       if (response.ok) {
         const data = await response.json();
 
-        if (data && data["devicelink_active"] && !data["is_connected"]) {
-          return { host, data };
+        if (data) {
+          const device = new DevicelinkDevice(
+            host,
+            data["device_name"],
+            data["is_connected"],
+            data["devicelink_active"],
+          );
+          return device;
         }
       }
     } catch (error) {
@@ -111,6 +112,40 @@ class devicelink {
     }
 
     return null;
+  }
+}
+
+class DevicelinkDevice {
+  #host;
+  #deviceName;
+  #isConnected;
+  #isActive;
+
+  constructor(host, deviceName, isConnected, isActive) {
+    this.#host = host;
+    this.#deviceName = deviceName;
+    this.#isConnected = isConnected;
+    this.#isActive = isActive;
+  }
+
+  get host() {
+    return this.#host;
+  }
+
+  get deviceName() {
+    return this.#deviceName;
+  }
+
+  get isConnected() {
+    return this.#isConnected;
+  }
+
+  get isActive() {
+    return this.#isActive;
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return `<DevicelinkDevice [${this.#deviceName}] at ${this.#host} (connected: ${this.#isConnected}, active: ${this.#isActive})>`;
   }
 }
 
@@ -140,4 +175,4 @@ function convertToIpv4(ip = "::ffff:121.0.0.1") {
   return ip;
 }
 
-module.exports = devicelink;
+module.exports = Devicelink;
