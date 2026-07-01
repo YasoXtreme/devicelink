@@ -63,6 +63,10 @@ class Devicelink {
     }
   }
 
+  /**
+   * @param {Number} port Devicelink will search for other active nearby devicelink instances on this port.
+   * @return {Promise<DevicelinkDevice[]>} A list of discovered active devices.
+   */
   async search(port = this.port) {
     const baseIp = getBaseIp(this.lanAddress);
     const promises = [];
